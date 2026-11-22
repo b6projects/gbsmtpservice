@@ -56,9 +56,12 @@ load_env() {
   ENV="$env"
   CONTAINER="gbsmtp-$env"
   PROJECT="gbsmtp-$env"
-  DATA_DIR="$ROOT_DIR/data/$env"
+  : "${DATA_ROOT:?DATA_ROOT missing in $env_file}"
+  [[ "$DATA_ROOT" == /* ]] || die "DATA_ROOT must be an absolute path (got '$DATA_ROOT')"
+  case "$DATA_ROOT/" in "$ROOT_DIR"/*) die "DATA_ROOT ($DATA_ROOT) must be outside the code folder ($ROOT_DIR)";; esac
+  DATA_DIR="$DATA_ROOT"
   CONF_DIR="$DATA_DIR/config"
-  SECRETS_DIR="$ROOT_DIR/secrets/$env"
+  SECRETS_DIR="$DATA_DIR/secrets"
   CREDENTIALS_FILE="$SECRETS_DIR/credentials.txt"
   ACCOUNTS_CF="$CONF_DIR/postfix-accounts.cf"
   VIRTUAL_CF="$CONF_DIR/postfix-virtual.cf"
@@ -66,7 +69,7 @@ load_env() {
   DKIM_CONF="$CONF_DIR/rspamd/override.d/dkim_signing.conf"
   MAILBOXES_PATH="$ROOT_DIR/$MAILBOXES_FILE"
   ALIASES_PATH="$ROOT_DIR/$ALIASES_FILE"
-  DNS_OUT="$ROOT_DIR/dns/$env-dns-records.txt"
+  DNS_OUT="$DATA_DIR/dns-records.txt"
   COMPOSE=(docker compose -p "$PROJECT" --env-file "$ROOT_DIR/env/$env.env" -f "$ROOT_DIR/docker-compose.yml")
 }
 

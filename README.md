@@ -12,8 +12,8 @@ It runs two separate environments, **PRD** and **UAT**, from the same compose fi
 | Domains | goldbucks.org, mygoldbucks.com, goldnpay.in, signalsarena.com | uatmail.goldbucks.org, uatmail.mygoldbucks.com, uatmail.goldnpay.in, uatmail.signalsarena.com |
 | Mailboxes | `config/prd/mailboxes.txt` | `config/uat/mailboxes.txt` |
 | Config | `env/prd.env` | `env/uat.env` |
-| Data | `data/prd/` | `data/uat/` |
-| Passwords | `secrets/prd/credentials.txt` | `secrets/uat/credentials.txt` |
+| Data (`DATA_ROOT`) | `/root/projects/gbsmtpservice/prd/` | `/root/projects/gbsmtpservice/uat/` |
+| Passwords | `/root/projects/gbsmtpservice/prd/secrets/credentials.txt` | `/root/projects/gbsmtpservice/uat/secrets/credentials.txt` |
 
 UAT uses dedicated `uatmail.` sub-domains (separate from the `uat.` app sub-domains) so it never competes with PRD for the real domains' MX records,
 and test mail never goes out from a real customer-facing address.
@@ -47,15 +47,25 @@ scripts/
   status.sh               health, mailboxes, queue, cert expiry, logs
   dns-records.sh          print the DNS records to publish
   backup.sh               backup data + keys + credentials
-data/<env>/               (runtime, git-ignored) mail, accounts, DKIM keys, queue, logs
-secrets/<env>/            (runtime, git-ignored) generated mailbox passwords
-dns/<env>-dns-records.txt (generated, git-ignored)
+```
+
+Runtime data lives **outside the code checkout**, in each environment's `DATA_ROOT` folder (PRD: `/root/projects/gbsmtpservice/prd`, UAT: `/root/projects/gbsmtpservice/uat`), so a
+Jenkins workspace wipe or a fresh `git clone` never touches mail:
+
+```
+$DATA_ROOT/
+  mail-data/          mailboxes (Maildir)
+  mail-state/         queue, spam-filter state
+  mail-logs/          delivery logs
+  config/             accounts, aliases, DKIM keys, Rspamd config
+  secrets/            generated mailbox passwords (root only)
+  dns-records.txt     DNS records to publish
 ```
 
 ## Server requirements
 
 - Linux VPS (Ubuntu 22.04/24.04 recommended), 2 GB RAM minimum (4 GB+ to enable ClamAV)
-- Docker Engine + Docker Compose v2, `openssl`, `curl` (`certbot` is installed by setup if missing)
+- Docker Engine + Docker Compose v2, `openssl`, `curl` (`certbot`, plus its nginx plugin when nginx owns port 80, is installed by setup if missing)
 - **Outbound port 25 open.** AWS, GCP and Azure block it, and DigitalOcean usually does until you file a ticket. Hetzner, OVH and Contabo are fine.
 - A static public IPv4 with **reverse DNS (PTR)** set to the mail host name
 - Firewall inbound: `25, 80 (certificate issuance/renewal), 465, 587, 993`
@@ -64,7 +74,7 @@ dns/<env>-dns-records.txt (generated, git-ignored)
 ## Deploy
 
 ```bash
-# On the server
+# On the server (any checkout location works, e.g. /opt/gbsmtpservice or a Jenkins workspace)
 sudo git clone <repo-url> /opt/gbsmtpservice && cd /opt/gbsmtpservice
 
 # 1. Create the A record for the mail host FIRST (needed for the TLS certificate)
@@ -77,10 +87,10 @@ sudo git clone <repo-url> /opt/gbsmtpservice && cd /opt/gbsmtpservice
 # 3. Set up the environment (certificate, mailboxes, aliases, DKIM, start, DNS sheet)
 sudo ./scripts/setup.sh prd        # or: uat
 
-# 4. Publish everything in dns/prd-dns-records.txt at each domain's registrar
+# 4. Publish everything in /root/projects/gbsmtpservice/prd/dns-records.txt at each domain's registrar
 # 5. Set the PTR record in the VPS provider panel
 # 6. Collect the passwords
-sudo cat secrets/prd/credentials.txt
+sudo cat /root/projects/gbsmtpservice/prd/secrets/credentials.txt
 ```
 
 ## Day-to-day
@@ -89,14 +99,14 @@ sudo cat secrets/prd/credentials.txt
 ./scripts/status.sh prd                  # health, mailboxes, queue, cert, logs
 ./scripts/start.sh prd --restart         # restart
 ./scripts/start.sh prd --pull            # upgrade docker-mailserver
-./scripts/stop.sh prd                    # stop (mail is kept in data/prd)
+./scripts/stop.sh prd                    # stop (mail is kept in /root/projects/gbsmtpservice/prd)
 ./scripts/dns-records.sh prd             # reprint DNS records
 sudo ./scripts/backup.sh prd             # backup to BACKUP_DIR
 ```
 
 **Add a mailbox:** add the address to `config/<env>/mailboxes.txt`, then run `sudo ./scripts/setup.sh <env>`.
-Existing mailboxes are never changed. The new password is appended to `secrets/<env>/credentials.txt`.
-A new domain also gets a DKIM key, so re-publish DNS from `dns/<env>-dns-records.txt`.
+Existing mailboxes are never changed. The new password is appended to `$DATA_ROOT/secrets/credentials.txt`.
+A new domain also gets a DKIM key, so re-publish DNS from `$DATA_ROOT/dns-records.txt`.
 
 **Change or reset a password:**
 ```bash
@@ -132,15 +142,22 @@ Spoof protection is on, so an account can only send as its own address or its al
 ## Deliverability checklist
 
 - [ ] A record for the mail host and PTR record both point to each other
-- [ ] MX, SPF, DKIM and DMARC records published for every domain (`dns/<env>-dns-records.txt`)
+- [ ] MX, SPF, DKIM and DMARC records published for every domain (`$DATA_ROOT/dns-records.txt`)
 - [ ] [mail-tester.com](https://www.mail-tester.com) score of 9/10 or better
 - [ ] Gmail "Show original" shows SPF, DKIM and DMARC as PASS
 - [ ] Server IP not listed on [MXToolbox blacklist check](https://mxtoolbox.com/blacklists.aspx)
 - [ ] Sending volume ramped up gradually on a new IP
 - [ ] After about 2 clean weeks, move `DMARC_POLICY` from `none` to `quarantine`, then `reject`, and re-publish
 
+## TLS certificate
+
+`setup.sh` gets a Let's Encrypt certificate for the mail host. With `CERT_METHOD=auto` (the default),
+it uses certbot's **nginx** plugin when nginx already serves port 80, which leaves your other sites
+untouched (certonly mode answers the challenge without editing site configs). Otherwise it uses
+**standalone** mode. Renewal is automatic, and a deploy hook restarts the mail container afterwards.
+
 ## Backups
 
-`data/<env>/` holds everything: mail (Maildir), accounts, aliases, DKIM keys and the queue.
+`$DATA_ROOT/` holds everything: mail (Maildir), accounts, aliases, DKIM keys, passwords and the queue.
 Restarting or recreating the container loses nothing. Losing the disk loses everything, so schedule
 `scripts/backup.sh` with cron and copy `BACKUP_DIR` off the server.

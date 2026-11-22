@@ -21,9 +21,10 @@ FILE="$DEST/gbsmtp-$ENV-$STAMP.tar.gz"
 mkdir -p "$DEST"; chmod 700 "$DEST"
 log "Backing up $ENV -> $FILE"
 
-tar -czf "$FILE" -C "$ROOT_DIR" \
-  --exclude="data/$ENV/mail-logs" \
-  "data/$ENV" "secrets/$ENV" "env/$ENV.env" "config/$ENV"
+tar -czf "$FILE" \
+  --exclude="$(basename "$DATA_DIR")/mail-logs" \
+  -C "$(dirname "$DATA_DIR")" "$(basename "$DATA_DIR")" \
+  -C "$ROOT_DIR" "env/$ENV.env" "config/$ENV"
 chmod 600 "$FILE"
 ok "Backup size: $(du -h "$FILE" | cut -f1)"
 
@@ -32,5 +33,7 @@ ok "Done (keeping $KEEP days)"
 
 # Restore:
 #   ./scripts/stop.sh <env>
-#   tar -xzf gbsmtp-<env>-<stamp>.tar.gz -C /opt/gbsmtpservice
+#   mkdir -p /tmp/restore && tar -xzf gbsmtp-<env>-<stamp>.tar.gz -C /tmp/restore
+#   rsync -a /tmp/restore/<env>/ $DATA_ROOT/      # mail, accounts, keys, passwords
+#   (env/ and config/ in the archive are for reference — the repo is the source of truth)
 #   ./scripts/start.sh <env>

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Prints the DNS records to publish for an environment and saves them to
-# dns/<env>-dns-records.txt. Run after setup.sh (needs the DKIM keys).
+# $DATA_ROOT/dns-records.txt. Run after setup.sh (needs the DKIM keys).
 #
 #   ./scripts/dns-records.sh prd
 

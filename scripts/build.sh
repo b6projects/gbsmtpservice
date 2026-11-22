@@ -53,6 +53,14 @@ if [[ -n "$overlap" ]]; then
   warn "PRD and UAT both serve: $overlap — UAT must use separate (uatmail.) domains"; failures=$((failures+1))
 fi
 
+# PRD and UAT must never share a data folder
+prd_root="$(load_env prd; echo "$DATA_ROOT")"; uat_root="$(load_env uat; echo "$DATA_ROOT")"
+if [[ "${prd_root%/}" == "${uat_root%/}" ]]; then
+  warn "PRD and UAT have the same DATA_ROOT ($prd_root) — they would overwrite each other's mail"; failures=$((failures+1))
+else
+  ok "Data folders: prd=$prd_root  uat=$uat_root"
+fi
+
 [[ $failures -eq 0 ]] || die "$failures check(s) failed"
 
 if [[ $PULL -eq 1 ]]; then

@@ -22,10 +22,10 @@ services:
       - "${BIND_IP:-0.0.0.0}:${PORT_IMAPS:-993}:993"       # IMAPS — reading mail
 
     volumes:
-      - ./data/${ENV_NAME}/mail-data/:/var/mail/
-      - ./data/${ENV_NAME}/mail-state/:/var/mail-state/
-      - ./data/${ENV_NAME}/mail-logs/:/var/log/mail/
-      - ./data/${ENV_NAME}/config/:/tmp/docker-mailserver/
+      - ${DATA_ROOT:?DATA_ROOT is required}/mail-data/:/var/mail/
+      - ${DATA_ROOT:?DATA_ROOT is required}/mail-state/:/var/mail-state/
+      - ${DATA_ROOT:?DATA_ROOT is required}/mail-logs/:/var/log/mail/
+      - ${DATA_ROOT:?DATA_ROOT is required}/config/:/tmp/docker-mailserver/
       - ${LETSENCRYPT_DIR:-/etc/letsencrypt}:/etc/letsencrypt:ro
       - /etc/localtime:/etc/localtime:ro
 

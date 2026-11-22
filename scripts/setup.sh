@@ -8,11 +8,11 @@
 #   1. Pre-flight checks
 #   2. Obtains a Let's Encrypt certificate for MAIL_HOSTNAME (if missing)
 #   3. Creates every mailbox in config/<env>/mailboxes.txt with a random password
-#      (existing mailboxes are never changed) -> secrets/<env>/credentials.txt
+#      (existing mailboxes are never changed) -> $DATA_ROOT/secrets/credentials.txt
 #   4. Creates every alias in config/<env>/aliases.txt
 #   5. Generates a DKIM key for every domain and configures Rspamd signing
 #   6. Starts the container and waits until it is healthy
-#   7. Writes the DNS records to publish -> dns/<env>-dns-records.txt
+#   7. Writes the DNS records to publish -> $DATA_ROOT/dns-records.txt
 #
 # Options:
 #   --skip-cert   don't run certbot (certificate already present / managed elsewhere)
@@ -45,8 +45,10 @@ fi
 validate_lists || die "Fix the problems above in $MAILBOXES_FILE / $ALIASES_FILE"
 ok "$(mailboxes | wc -l | tr -d ' ') mailboxes across $(domains | wc -l | tr -d ' ') domains: $(domains | paste -sd' ' -)"
 
-mkdir -p "$DATA_DIR"/{mail-data,mail-state,mail-logs,config} "$DKIM_DIR" "$(dirname "$DKIM_CONF")" "$ROOT_DIR/dns"
-mkdir -p "$SECRETS_DIR"; chmod 700 "$ROOT_DIR/secrets" "$SECRETS_DIR"
+mkdir -p "$DATA_DIR"/{mail-data,mail-state,mail-logs,config} "$DKIM_DIR" "$(dirname "$DKIM_CONF")"
+chmod 750 "$DATA_DIR"
+mkdir -p "$SECRETS_DIR"; chmod 700 "$SECRETS_DIR"
+ok "Data folder: $DATA_DIR"
 touch "$ACCOUNTS_CF" "$VIRTUAL_CF"
 
 # ---------------------------------------------------------------- 2. certificate
@@ -60,17 +62,23 @@ elif [[ $SKIP_CERT -eq 1 ]]; then
   warn "--skip-cert given but no certificate at $CERT_DIR — the server will fail TLS until one exists"
 else
   [[ $EUID -eq 0 ]] || die "Obtaining a certificate needs root. Re-run with sudo (or use --skip-cert)."
-  if ! command -v certbot >/dev/null 2>&1; then
-    if command -v apt-get >/dev/null 2>&1; then
-      log "Installing certbot"; apt-get update -qq && apt-get install -y -qq certbot
-    else
-      die "certbot is not installed — install it, then re-run"
-    fi
+  method="${CERT_METHOD:-auto}"
+  if [[ "$method" == "auto" ]]; then
+    if ss -ltnp 2>/dev/null | grep -E '[:.]80\s' | grep -q nginx; then method=nginx
+    elif ss -ltn 2>/dev/null | grep -qE '[:.]80\s'; then
+      die "Port 80 is used by something other than nginx. Set CERT_METHOD, or issue the certificate yourself and use --skip-cert."
+    else method=standalone; fi
   fi
-  if ss -ltn 2>/dev/null | grep -qE '[:.]80\s'; then
-    die "Port 80 is in use — certbot --standalone needs it briefly. Stop the web server, or use --skip-cert and issue the cert yourself."
+  pkgs=(certbot); [[ "$method" == "nginx" ]] && pkgs+=(python3-certbot-nginx)
+  missing=()
+  for p in "${pkgs[@]}"; do dpkg -s "$p" >/dev/null 2>&1 || missing+=("$p"); done
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    command -v apt-get >/dev/null 2>&1 || die "Install ${missing[*]} and re-run"
+    log "Installing ${missing[*]}"; apt-get update -qq && apt-get install -y -qq "${missing[@]}"
   fi
-  certbot certonly --standalone --non-interactive --agree-tos \
+  log "Requesting certificate via certbot --$method"
+  # certonly: nginx is used only to answer the challenge; no nginx site config is changed
+  certbot certonly --"$method" --non-interactive --agree-tos \
     -m "${ACME_EMAIL:?ACME_EMAIL missing in env file}" -d "$MAIL_HOSTNAME"
   ok "Certificate issued"
 fi
@@ -173,8 +181,8 @@ fi
 
 # ---------------------------------------------------------------- 7. DNS
 log "7/7 DNS records"
-"$ROOT_DIR/scripts/dns-records.sh" "$ENV" >/dev/null
-ok "Written to ${DNS_OUT#"$ROOT_DIR"/}"
+bash "$ROOT_DIR/scripts/dns-records.sh" "$ENV" >/dev/null
+ok "Written to $DNS_OUT"
 
 echo
 log "${C_GRN}Setup complete for ${ENV^^}${C_RST} ($created new mailbox(es))"
@@ -182,9 +190,9 @@ cat <<EOF
 
   Next steps
   ----------
-  1. Publish the DNS records in:   dns/$ENV-dns-records.txt
+  1. Publish the DNS records in:   $DNS_OUT
   2. Set the PTR / reverse DNS of the server IP to $MAIL_HOSTNAME (VPS provider panel)
-  3. Mailbox passwords are in:     secrets/$ENV/credentials.txt   (chmod 600, git-ignored)
+  3. Mailbox passwords are in:     $CREDENTIALS_FILE   (root only)
   4. Check status:                 ./scripts/status.sh $ENV
   5. Test deliverability:          send a mail to the address shown on https://www.mail-tester.com
 
