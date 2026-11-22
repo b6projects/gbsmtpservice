@@ -1,0 +1,7 @@
+# Everything here runs on Linux — keep LF line endings even when checked out on Windows,
+# otherwise bash fails with "$'\r': command not found".
+* text=auto eol=lf
+*.sh  text eol=lf
+*.env text eol=lf
+*.txt text eol=lf
+*.yml text eol=lf

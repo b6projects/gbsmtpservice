@@ -1,0 +1,25 @@
+# PRD mailboxes — one address per line. Lines starting with # are ignored.
+# The mail domains served by this environment are taken from this file.
+# Passwords are generated on first creation and saved to secrets/prd/credentials.txt.
+# Re-running scripts/setup.sh only adds new addresses; existing ones are left untouched.
+
+# --- goldbucks.org ---
+no-reply@goldbucks.org
+support@goldbucks.org
+balamohan.k@goldbucks.org
+
+# --- mygoldbucks.com ---
+no-reply@mygoldbucks.com
+support@mygoldbucks.com
+
+# --- goldnpay.in ---
+no-reply@goldnpay.in
+support@goldnpay.in
+service@goldnpay.in
+grievance@goldnpay.in
+
+# --- signalsarena.com ---
+no-reply@signalsarena.com
+support@signalsarena.com
+service@signalsarena.com
+grievance@signalsarena.com

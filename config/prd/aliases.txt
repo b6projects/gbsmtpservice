@@ -1,0 +1,19 @@
+# PRD aliases — format: <alias> <destination>
+# RFC-required role addresses for each domain, delivered to a real mailbox.
+# dmarc@ receives the daily DMARC aggregate reports.
+
+postmaster@goldbucks.org      balamohan.k@goldbucks.org
+abuse@goldbucks.org           balamohan.k@goldbucks.org
+dmarc@goldbucks.org           balamohan.k@goldbucks.org
+
+postmaster@mygoldbucks.com    support@mygoldbucks.com
+abuse@mygoldbucks.com         support@mygoldbucks.com
+dmarc@mygoldbucks.com         support@mygoldbucks.com
+
+postmaster@goldnpay.in        support@goldnpay.in
+abuse@goldnpay.in             support@goldnpay.in
+dmarc@goldnpay.in             support@goldnpay.in
+
+postmaster@signalsarena.com   support@signalsarena.com
+abuse@signalsarena.com        support@signalsarena.com
+dmarc@signalsarena.com        support@signalsarena.com

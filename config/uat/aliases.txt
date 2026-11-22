@@ -1,0 +1,13 @@
+# UAT aliases — format: <alias> <destination>
+
+postmaster@uatmail.goldbucks.org      test@uatmail.goldbucks.org
+dmarc@uatmail.goldbucks.org           test@uatmail.goldbucks.org
+
+postmaster@uatmail.mygoldbucks.com    test@uatmail.mygoldbucks.com
+dmarc@uatmail.mygoldbucks.com         test@uatmail.mygoldbucks.com
+
+postmaster@uatmail.goldnpay.in        test@uatmail.goldnpay.in
+dmarc@uatmail.goldnpay.in             test@uatmail.goldnpay.in
+
+postmaster@uatmail.signalsarena.com   test@uatmail.signalsarena.com
+dmarc@uatmail.signalsarena.com        test@uatmail.signalsarena.com

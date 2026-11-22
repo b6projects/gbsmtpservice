@@ -1,0 +1,79 @@
+# GB SMTP Service — multi-domain mail server (docker-mailserver)
+#
+# One compose file serves both environments. All environment-specific values
+# come from env/<env>.env, passed by the scripts:
+#
+#   docker compose -p gbsmtp-prd --env-file env/prd.env up -d
+#
+# Prefer the wrappers: scripts/start.sh prd | uat
+
+services:
+  mailserver:
+    image: ghcr.io/docker-mailserver/docker-mailserver:${DMS_VERSION:-latest}
+    container_name: gbsmtp-${ENV_NAME:?ENV_NAME is required}
+    hostname: ${MAIL_HOSTNAME:?MAIL_HOSTNAME is required}
+    restart: always
+    stop_grace_period: 1m
+
+    ports:
+      - "${BIND_IP:-0.0.0.0}:${PORT_SMTP:-25}:25"          # SMTP  — inbound from other mail servers
+      - "${BIND_IP:-0.0.0.0}:${PORT_SMTPS:-465}:465"       # SMTPS — client/app submission (implicit TLS)
+      - "${BIND_IP:-0.0.0.0}:${PORT_SUBMISSION:-587}:587"  # Submission — client/app submission (STARTTLS)
+      - "${BIND_IP:-0.0.0.0}:${PORT_IMAPS:-993}:993"       # IMAPS — reading mail
+
+    volumes:
+      - ./data/${ENV_NAME}/mail-data/:/var/mail/
+      - ./data/${ENV_NAME}/mail-state/:/var/mail-state/
+      - ./data/${ENV_NAME}/mail-logs/:/var/log/mail/
+      - ./data/${ENV_NAME}/config/:/tmp/docker-mailserver/
+      - ${LETSENCRYPT_DIR:-/etc/letsencrypt}:/etc/letsencrypt:ro
+      - /etc/localtime:/etc/localtime:ro
+
+    environment:
+      - OVERRIDE_HOSTNAME=${MAIL_HOSTNAME}
+      - POSTMASTER_ADDRESS=${POSTMASTER_ADDRESS}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - TZ=${TZ:-Asia/Kolkata}
+
+      # TLS — certificate for MAIL_HOSTNAME is read from /etc/letsencrypt/live/<MAIL_HOSTNAME>/
+      - SSL_TYPE=${SSL_TYPE:-letsencrypt}
+
+      # Spam filtering + DKIM signing via Rspamd (DKIM keys created by scripts/setup.sh)
+      - ENABLE_RSPAMD=1
+      - ENABLE_OPENDKIM=0
+      - ENABLE_OPENDMARC=0
+      - ENABLE_POLICYD_SPF=0
+      - ENABLE_AMAVIS=0
+      - ENABLE_SPAMASSASSIN=0
+      - RSPAMD_GREYLISTING=${RSPAMD_GREYLISTING:-0}
+
+      - ENABLE_CLAMAV=${ENABLE_CLAMAV:-0}
+      - ENABLE_FAIL2BAN=${ENABLE_FAIL2BAN:-1}
+      - ENABLE_POP3=0
+      - ENABLE_IMAP=1
+
+      # Authenticated users may only send as their own address (or their aliases)
+      - SPOOF_PROTECTION=1
+      - PERMIT_DOCKER=none
+      - ENABLE_UPDATE_CHECK=0
+
+      # Mailbox quota and maximum message size (bytes)
+      - ENABLE_QUOTAS=1
+      - POSTFIX_MAILBOX_SIZE_LIMIT=${MAILBOX_SIZE_LIMIT:-0}
+      - POSTFIX_MESSAGE_SIZE_LIMIT=${MESSAGE_SIZE_LIMIT:-26214400}
+
+    cap_add:
+      - NET_ADMIN   # required by Fail2ban
+
+    healthcheck:
+      test: "ss --listening --tcp | grep -P 'LISTEN.+:smtp' || exit 1"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"

@@ -1,0 +1,8 @@
+# UAT mailboxes — one test address per domain, on the uatmail.<domain> sub-domain.
+# Point UAT builds of the apps at these for sending and receiving test mail.
+# Add more lines (e.g. no-reply@uatmail.goldnpay.in) if a UAT app needs them.
+
+test@uatmail.goldbucks.org
+test@uatmail.mygoldbucks.com
+test@uatmail.goldnpay.in
+test@uatmail.signalsarena.com

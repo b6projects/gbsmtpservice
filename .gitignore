@@ -1,0 +1,15 @@
+# Runtime data: mailboxes, mail, DKIM private keys, queue, logs
+/data/
+
+# Generated mailbox passwords
+/secrets/
+
+# Generated DNS record sheets (contain the server IP)
+/dns/
+
+# Build output
+/dist/
+
+.DS_Store
+Thumbs.db
+*.swp
