@@ -46,6 +46,9 @@ scripts/
   stop.sh                 stop (data kept)
   status.sh               health, mailboxes, queue, cert expiry, logs
   dns-records.sh          print the DNS records to publish
+  passwd.sh               change / reset a mailbox password
+  add-mailbox.sh          add a mailbox on an existing domain
+  suspend.sh              suspend / resume a mailbox, list suspended
   backup.sh               backup data + keys + credentials
 ```
 
@@ -104,18 +107,43 @@ sudo cat /root/projects/gbsmtpservice/prd/secrets/credentials.txt
 sudo ./scripts/backup.sh prd             # backup to BACKUP_DIR
 ```
 
-**Add a mailbox:** add the address to `config/<env>/mailboxes.txt`, then run `sudo ./scripts/setup.sh <env>`.
-Existing mailboxes are never changed. The new password is appended to `$DATA_ROOT/secrets/credentials.txt`.
-A new domain also gets a DKIM key, so re-publish DNS from `$DATA_ROOT/dns-records.txt`.
+### Mailbox administration (run on the server as root)
 
-**Change or reset a password:**
+| Task | Command |
+|---|---|
+| Change / reset a password (prompts) | `bash scripts/passwd.sh prd support@goldnpay.in` |
+| Reset to a random password (shown once) | `bash scripts/passwd.sh prd support@goldnpay.in --generate` |
+| Add a mailbox (random password) | `bash scripts/add-mailbox.sh prd accounts@goldnpay.in` |
+| Add a mailbox with your own password and a quota | `bash scripts/add-mailbox.sh prd accounts@goldnpay.in --password --quota 10G` |
+| Suspend (login blocked, mail still arrives) | `bash scripts/suspend.sh prd service@goldnpay.in` |
+| Suspend and bounce new incoming mail | `bash scripts/suspend.sh prd service@goldnpay.in --block-incoming` |
+| Resume (same password as before) | `bash scripts/suspend.sh prd service@goldnpay.in --resume` |
+| List suspended mailboxes | `bash scripts/suspend.sh prd --list` |
+| Change one mailbox's quota | `docker exec gbsmtp-prd setup quota set support@goldnpay.in 10G` |
+| Delete a mailbox permanently | `docker exec -it gbsmtp-prd setup email del support@goldnpay.in` |
+
+- Every change is live within a few seconds, with no restart. Password changes and suspensions also end open IMAP sessions.
+- New and changed passwords are recorded in `$DATA_ROOT/secrets/credentials.txt`.
+- `add-mailbox.sh` only works on domains this environment already serves. **For a new domain**, add the address to `config/<env>/mailboxes.txt`, commit, and run `setup.sh`, which also creates the DKIM key and the DNS records.
+- After `add-mailbox.sh`, add the address to `config/<env>/mailboxes.txt` in git too, so the list stays the source of truth. `setup.sh` warns about mailboxes that exist on the server but not in the list.
+- A suspended mailbox keeps its mail and password. Its password can't be changed until it is resumed.
+
+### Fail2ban allow-list
+
+Fail2ban bans an IP after repeated failed logins. Attackers are banned as normal, but so is an
+admin PC or app with a wrong password. Addresses in `FAIL2BAN_IGNOREIP` (in `env/<env>.env`) are
+never banned. The server's own IP, localhost and private/Docker networks are always added.
+
 ```bash
-docker exec -it gbsmtp-prd setup email update support@goldnpay.in 'NewStrongPassword'
+# env/prd.env  (space-separated, keep the quotes)
+FAIL2BAN_IGNOREIP="49.206.9.75 203.0.113.0/24"
 ```
+Commit, pull on the server, then run `bash scripts/setup.sh prd`. It rewrites `config/fail2ban-jail.cf`
+and restarts the container only if the list changed.
 
-**Delete a mailbox** (removing it from the list does not delete it):
 ```bash
-docker exec -it gbsmtp-prd setup email del support@goldnpay.in
+docker exec gbsmtp-prd setup fail2ban                 # list banned IPs
+docker exec gbsmtp-prd setup fail2ban unban <ip>      # lift a ban
 ```
 
 ## Connecting clients and apps

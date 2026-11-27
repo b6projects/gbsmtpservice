@@ -112,6 +112,12 @@ validate_lists() {
   return "$errors"
 }
 
+is_valid_ip_or_cidr() {
+  local re4='^([0-9]{1,3}\.){3}[0-9]{1,3}(/([0-9]|[12][0-9]|3[0-2]))?$'
+  local re6='^[0-9a-fA-F:]+(/[0-9]{1,3})?$'
+  [[ "$1" =~ $re4 || ( "$1" == *:* && "$1" =~ $re6 ) ]]
+}
+
 # ---------- secrets ----------
 gen_password() {
   # 24 chars, alphanumeric (safe for every mail client and .env file)
@@ -129,6 +135,88 @@ account_exists() {
 
 alias_exists() {
   [[ -f "$VIRTUAL_CF" ]] && awk -v a="$1" 'tolower($1)==a {found=1} END {exit !found}' "$VIRTUAL_CF"
+}
+
+# ---------- account administration (passwd / add / suspend) ----------
+SUSPEND_MARK="!"   # a hash starting with {SCHEME}! can never match, so login is refused
+
+require_root() {
+  [[ $EUID -eq 0 ]] || die "Run as root (mail accounts and passwords are root-only): sudo bash $0 $*"
+}
+
+# Serialise edits to the account files (two admins, or a script racing setup.sh)
+lock_accounts() {
+  exec 9>"$CONF_DIR/.gbsmtp-admin.lock"
+  flock -w 30 9 || die "Another admin script is editing accounts — try again"
+}
+
+normalise_email() { printf '%s' "${1,,}" | tr -d '[:space:]'; }
+
+# Prints the stored hash field (e.g. "{SHA512-CRYPT}$6$...") for an address
+account_hash() {
+  awk -F'|' -v e="$1" 'tolower($1)==e {print $2; exit}' "$ACCOUNTS_CF"
+}
+
+is_suspended() {
+  local h; h="$(account_hash "$1")"
+  [[ "$h" =~ ^\{[A-Z0-9-]+\}${SUSPEND_MARK} ]]
+}
+
+# set_account_hash <email> <hash-field> — rewrites the line in place (keeps inode,
+# owner and mode, so docker-mailserver's change detector picks it up cleanly)
+set_account_hash() {
+  local email="$1" field="$2" tmp
+  tmp="$(mktemp "$CONF_DIR/.accounts.XXXXXX")"
+  awk -F'|' -v OFS='|' -v e="$email" -v h="$field" \
+    'tolower($1)==e { $0 = $1 "|" h } { print }' "$ACCOUNTS_CF" > "$tmp"
+  cat "$tmp" > "$ACCOUNTS_CF"
+  rm -f "$tmp"
+}
+
+# Reads a new password interactively (twice) and validates it. Result in $NEW_PASSWORD.
+prompt_password() {
+  local p1 p2
+  while true; do
+    read -rsp "New password (min 12 chars): " p1; echo
+    read -rsp "Repeat password: " p2; echo
+    if [[ "$p1" != "$p2" ]]; then warn "Passwords do not match"; continue; fi
+    if (( ${#p1} < 12 )); then warn "Too short — use at least 12 characters"; continue; fi
+    if [[ "$p1" =~ [[:space:]\|:\"\'\`\\] ]]; then
+      warn "Avoid spaces and these characters: | : \" ' \` \\"; continue
+    fi
+    NEW_PASSWORD="$p1"; return 0
+  done
+}
+
+# record_credential <email> <password> <note> — upsert the line in credentials.txt
+record_credential() {
+  local email="$1" pw="$2" note="$3" tmp line
+  mkdir -p "$SECRETS_DIR"; chmod 700 "$SECRETS_DIR"
+  touch "$CREDENTIALS_FILE"; chmod 600 "$CREDENTIALS_FILE"
+  line="$(printf '  %-38s %-26s %s  %s' "$email" "$pw" "$(date '+%F %T')" "$note")"
+  tmp="$(mktemp "$SECRETS_DIR/.cred.XXXXXX")"
+  awk -v e="$email" -v l="$line" '
+    !/^[[:space:]]*#/ && tolower($1)==e { if (!done) print l; done=1; next }
+    { print }
+    END { if (!done) print l }' "$CREDENTIALS_FILE" > "$tmp"
+  cat "$tmp" > "$CREDENTIALS_FILE"; rm -f "$tmp"
+}
+
+# Marks an address's credentials line without changing the password column
+annotate_credential() {
+  local email="$1" note="$2" tmp
+  [[ -f "$CREDENTIALS_FILE" ]] || return 0
+  tmp="$(mktemp "$SECRETS_DIR/.cred.XXXXXX")"
+  awk -v e="$email" -v n="$note" -v d="$(date '+%F %T')" '
+    !/^[[:space:]]*#/ && tolower($1)==e { printf "  %-38s %-26s %s  %s\n", $1, $2, d, n; next }
+    { print }' "$CREDENTIALS_FILE" > "$tmp"
+  cat "$tmp" > "$CREDENTIALS_FILE"; rm -f "$tmp"
+}
+
+# Ends open IMAP sessions for an address (so a suspend / password change bites at once)
+kick_sessions() {
+  container_running || return 0
+  docker exec "$CONTAINER" doveadm kick "$1" >/dev/null 2>&1 || true
 }
 
 # ---------- DKIM ----------
